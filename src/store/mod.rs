@@ -8,7 +8,7 @@ use crate::types::extra_life::ExtraLife;
 use crate::types::offense::Offense;
 use crate::types::player::Player;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Store {
     connection: PgPool,
 }

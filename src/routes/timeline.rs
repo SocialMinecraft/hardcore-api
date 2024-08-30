@@ -1,8 +1,12 @@
 use crate::store::Store;
 use crate::timeline;
 use crate::timeline::Timeline;
+use tracing::{event, instrument, Level};
 
+#[instrument]
 pub async fn get_timelines(store: Store) -> Result<impl warp::Reply, warp::Rejection> {
+
+    event!(target: "hardcore-api", Level::INFO, "loading timelines");
 
     // todo - handle the errors....
     // Err(warp::reject::custom(e))
