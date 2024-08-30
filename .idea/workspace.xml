@@ -59,7 +59,10 @@
     <configuration name="Run" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
       <option name="command" value="run --package HardcoreApi --bin HardcoreApi" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$" />
-      <envs />
+      <envs>
+        <env name="DB_URL" value="postgres://postgres:password@127.0.0.1:5432/hardcore" />
+        <env name="RUST_LOG" value="info" />
+      </envs>
       <option name="emulateTerminal" value="true" />
       <option name="channel" value="DEFAULT" />
       <option name="requiredFeatures" value="true" />
@@ -96,7 +99,8 @@
       <workItem from="1724873813114" duration="24485000" />
       <workItem from="1725023983977" duration="61000" />
       <workItem from="1725024053040" duration="545000" />
-      <workItem from="1725024605581" duration="1298000" />
+      <workItem from="1725024605581" duration="2857000" />
+      <workItem from="1725030025444" duration="627000" />
     </task>
     <servers />
   </component>
