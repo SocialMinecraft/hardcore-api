@@ -2,6 +2,7 @@ use std::env;
 use warp::Filter;
 use warp::http::Method;
 use tracing_subscriber::fmt::format::FmtSpan;
+use crate::errors::return_error;
 
 mod types;
 mod store;
@@ -48,8 +49,8 @@ async fn main() {
 
     let routes = get_timelines
         .with(cors)
-        .with(warp::trace::request());
-    // todo - error handling
+        .with(warp::trace::request())
+        .recover(return_error);
 
     warp::serve(routes).run(([0, 0, 0, 0], 3030)).await;
 

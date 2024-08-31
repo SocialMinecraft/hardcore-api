@@ -8,14 +8,17 @@ pub async fn get_timelines(store: Store) -> Result<impl warp::Reply, warp::Rejec
 
     event!(target: "hardcore-api", Level::INFO, "loading timelines");
 
-    // todo - handle the errors....
-    // Err(warp::reject::custom(e))
-
-    let players = store.get_players().await.unwrap();
+    let players = match store.get_players().await {
+        Ok(res) => res,
+        Err(e) => return Err(warp::reject::custom(e)),
+    };
     let mut timelines: Vec<Timeline> = vec![];
 
     for player in players {
-        let timeline = timeline::Timeline::build(&store, &player).await.unwrap();
+        let timeline = match timeline::Timeline::build(&store, &player).await {
+            Ok(r) => r,
+            Err(e) => return Err(warp::reject::custom(e)),
+        };
         //print!("{:?}", timeline);
         timelines.push(timeline)
     }
