@@ -129,6 +129,7 @@ impl Timeline {
     fn normalize_event_spans(events: &mut Vec<TimelineEvent>) {
         for event in events {
             event.span /= 20;
+            event.playtime /= 20;
         }
     }
 
@@ -229,7 +230,7 @@ impl Timeline {
             stamp: a.stamp.clone(),
             what: EventType::Died,
             context: a.reason.clone(),
-            playtime: a.playtime / 20,
+            playtime: a.playtime,
             span: 0,
             unranked: false,
         }
@@ -240,7 +241,7 @@ impl Timeline {
             stamp: a.stamp.clone(),
             what: EventType::Offense,
             context: a.reason.clone(),
-            playtime: a.playtime / 20,
+            playtime: a.playtime,
             span: 0,
             unranked: false,
         }
@@ -251,7 +252,7 @@ impl Timeline {
             stamp: a.stamp.clone(),
             what: EventType::ExtraLife,
             context: a.reason.clone(),
-            playtime: a.playtime / 20,
+            playtime: a.playtime,
             span: 0,
             unranked: false,
         }
