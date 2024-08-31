@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
+use std::option::Option;
 use chrono::Utc;
-//use serde::de::Unexpected::Option;
 use serde::Serialize;
 use crate::errors::Error;
 use crate::store::Store;
@@ -14,9 +14,9 @@ pub struct Timeline {
     pub player_name: String,
     pub player_state: PlayerState,
     pub survived_seconds: i32,
-    pub events: Vec<TimelineEvent>,
     pub longest_life_seconds: i32,
     pub shortest_life_seconds: i32,
+    pub events: Vec<TimelineEvent>,
 }
 
 impl PartialOrd for Timeline {
@@ -38,12 +38,13 @@ pub enum PlayerState {
     //Unranked,
 }
 
-#[derive(Serialize, Debug, PartialEq, Eq)]
+#[derive(Serialize, Debug, PartialEq, Eq, Clone)]
 pub enum EventType {
     Joined,
     Died,
     ExtraLife,
     Offense,
+    Alive,
 }
 
 #[derive(Serialize, Debug, PartialEq, Eq)]
@@ -52,6 +53,11 @@ pub struct TimelineEvent {
     pub what : EventType,
     pub context: String,
     pub playtime: i32,
+
+    /// Only on a death and alive event, how many ticks was the player alive
+    pub span: i32,
+    /// Only useful on a death and alive event and extra life, is the life unranked.
+    pub unranked: bool,
 }
 
 impl PartialOrd for TimelineEvent {
@@ -69,11 +75,9 @@ impl Ord for TimelineEvent {
 impl Timeline {
 
     pub async fn build(store: &Store, player: &Player) -> Result<Self, Error> {
-        let mut deaths = store.get_player_deaths(&player.player_uuid).await?;
+        let deaths = store.get_player_deaths(&player.player_uuid).await?;
         let offenses = store.get_player_offenses(&player.player_uuid).await?;
         let extra_lives = store.get_player_extra_lives(&player.player_uuid).await ?;
-
-	deaths.sort(); // sorting for the longest / shortest later.
 
         let player_state = if deaths.len() - extra_lives.len() >= 3 { PlayerState::Dead } else { PlayerState::Alive };
 
@@ -92,64 +96,132 @@ impl Timeline {
             what: EventType::Joined,
             context: "Joined Hardcore".to_string(),
             playtime: 0,
+            span: 0,
+            unranked: false,
         });
-        events.sort();
-
-        let mut survived_seconds = player.playtime.clone();
-        if player_state == PlayerState::Dead {
-            let last_death = deaths.iter().max(); // this is sorted, so I coul just grab the last.
-            if last_death.is_some() {
-                survived_seconds = last_death.unwrap().playtime;
-            }
+        if player_state == PlayerState::Alive {
+            events.push(TimelineEvent{
+                stamp: Utc::now(),
+                what: EventType::Alive,
+                context: "Player is alive".to_string(),
+                playtime: player.playtime,
+                span: 0,
+                unranked: false,
+            });
         }
-	
-        // normalize ticks to seconds
-        survived_seconds /= 20;
 
-	let (long, short) = Self::longest_shortest_life(&deaths, &player.playtime, player_state == PlayerState::Alive);
+        Self::calculate_spans(&mut events);
+        let (long, short, survived) = Self::find_meta_stats(&events);
+        Self::normalize_event_spans(&mut events);
 
         Ok(Timeline {
             player_name: player.name.clone(),
             player_state,
             events,
-            survived_seconds,
-            longest_life_seconds: long / 20,
-            shortest_life_seconds: short / 20,
+            survived_seconds: survived / 20, // normalize to seconds
+            longest_life_seconds: long / 20, // normalize to seconds
+            shortest_life_seconds: short / 20, // normalize to seconds
         })
     }
 
-    // Todo - need to consider time a player may spent as a ghost.
-    fn longest_shortest_life(deaths: &Vec<Death>, playtime: &i32, alive: bool) -> (i32, i32) {
+    /// Will convert the spans to seconds from ticks. Should call this at the end
+    /// as you will lose some data.
+    fn normalize_event_spans(events: &mut Vec<TimelineEvent>) {
+        for event in events {
+            event.span /= 20;
+        }
+    }
 
-        //let mut time_between = playtime.clone();
-        let mut last_playtime = 0;
+    // events must be ordered before this point.
+    fn calculate_spans(events: &mut Vec<TimelineEvent>) {
+
+        events.sort();
+
+        let mut next_unranked = false;
+        let mut prev_playtime = 0;
+        let mut lives = 3;
+        for event in events {
+
+            match event.what {
+                EventType::Joined => { /* Nothing to do */ },
+                EventType::Died => {
+                    // remove life.
+                    lives -= 1;
+
+                    // how long did the player live.
+                    event.span = event.playtime - prev_playtime;
+
+                    // unranked life?
+                    event.unranked = next_unranked.clone();
+                    next_unranked = false;
+
+                    // set next playtime
+                    prev_playtime = event.playtime.clone();
+                },
+                EventType::Alive => {
+                    // how long did the player live.
+                    event.span = event.playtime - prev_playtime;
+
+                    // unranked life?
+                    event.unranked = next_unranked.clone();
+                    next_unranked = false;
+
+                    // set next playtime (not really needed :/ )
+                    // alive playtime == total playtime
+                    // prev_playtime = event.playtime.clone();
+                }
+                EventType::Offense => { /* Nothing to do */ },
+                EventType::ExtraLife => {
+                    // Is this a paid life?
+                    if event.context == "PAID" {
+                        next_unranked = true;
+                        event.unranked = true;
+                    }
+
+                    // if the playtime is zero, we don't have data and just need to keep going.
+                    if event.playtime == 0 {
+                        continue;
+                    };
+
+                    // is the player a ghost when they got the extra life?
+                    if lives <= 0 {
+                        // set the playtime to their current time.
+                        prev_playtime = event.playtime.clone();
+                    }
+                },
+            };
+        }
+    }
+
+
+    /// This function returns the longest life, shortest  life, and total survive time.
+    /// ignores any unranked spanns.
+    fn find_meta_stats(events: &Vec<TimelineEvent>) -> (i32, i32, i32) {
+
         let mut long = 0;
-        let mut short = playtime.clone();
+        let mut short = i32::MAX;
+        let mut survive_time = 0;
 
-        for death in deaths {
-            let time_between = death.playtime - last_playtime;
-            last_playtime = death.playtime.clone();
-
-            if time_between < short {
-                short = time_between.clone();
+        for event in events {
+            if event.what != EventType::Died && event.what != EventType::Alive {
+                continue;
             }
-            if time_between > long {
-                long = time_between.clone();
-            }
-        }
 
-        if alive {
-            let time_between = playtime - last_playtime;
-
-            if time_between > 0 && time_between < short {
-                short = time_between.clone();
+            if event.unranked {
+                continue;
             }
-            if time_between > 0 && time_between > long {
-                long = time_between.clone();
+
+            survive_time += event.span;
+
+            if event.span > long {
+                long = event.span.clone();
+            }
+            if event.span < short {
+                short = event.span.clone();
             }
         }
 
-        (long, short)
+        (long, short, survive_time)
     }
 
     fn death_to_event(a: &Death) -> TimelineEvent {
@@ -158,6 +230,8 @@ impl Timeline {
             what: EventType::Died,
             context: a.reason.clone(),
             playtime: a.playtime / 20,
+            span: 0,
+            unranked: false,
         }
     }
 
@@ -167,6 +241,8 @@ impl Timeline {
             what: EventType::Offense,
             context: a.reason.clone(),
             playtime: a.playtime / 20,
+            span: 0,
+            unranked: false,
         }
     }
 
@@ -176,6 +252,8 @@ impl Timeline {
             what: EventType::ExtraLife,
             context: a.reason.clone(),
             playtime: a.playtime / 20,
+            span: 0,
+            unranked: false,
         }
     }
 }
