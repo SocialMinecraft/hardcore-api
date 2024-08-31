@@ -8,6 +8,7 @@ use crate::types::death::Death;
 use crate::types::extra_life::ExtraLife;
 use crate::types::offense::Offense;
 use crate::types::player::Player;
+use crate::date_format;
 
 #[derive(Serialize, Debug, Eq, PartialEq)]
 pub struct Timeline {
@@ -49,6 +50,7 @@ pub enum EventType {
 
 #[derive(Serialize, Debug, PartialEq, Eq)]
 pub struct TimelineEvent {
+    #[serde(with = "date_format")]
     pub stamp : chrono::DateTime<Utc>,
     pub what : EventType,
     pub context: String,

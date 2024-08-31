@@ -9,6 +9,7 @@ mod store;
 mod errors;
 mod timeline;
 mod routes;
+mod date_format;
 
 #[tokio::main]
 async fn main() {
