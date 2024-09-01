@@ -9,6 +9,7 @@ use crate::types::extra_life::ExtraLife;
 use crate::types::offense::Offense;
 use crate::types::player::Player;
 use crate::date_format;
+use tracing::{event, Level};
 
 #[derive(Serialize, Debug, Eq, PartialEq)]
 pub struct Timeline {
@@ -140,23 +141,35 @@ impl Timeline {
 
         events.sort();
 
-        let mut next_unranked = false;
         let mut prev_playtime = 0;
-        let mut lives = 3;
+        let mut ranked_lives = 3;
+        let mut unranked_lives = 0;
+
         for event in events {
 
             match event.what {
                 EventType::Joined => { /* Nothing to do */ },
                 EventType::Died => {
+                    let ranked;
                     // remove life.
-                    lives -= 1;
+                    if ranked_lives > 0 {
+                        ranked_lives -= 1;
+                        ranked = true;
+                    } else if unranked_lives > 0 {
+                        unranked_lives -=1;
+                        ranked = false;
+                    } else {
+                        event!(target: "hardcore-api", Level::WARN, "Player has no lives but died.");
+                        event.span = 20*60*60*24*7*-1;
+                        event.unranked = true;
+                        continue;
+                    }
 
                     // how long did the player live.
                     event.span = event.playtime - prev_playtime;
 
                     // unranked life?
-                    event.unranked = next_unranked.clone();
-                    next_unranked = false;
+                    event.unranked = !ranked;
 
                     // set next playtime
                     prev_playtime = event.playtime.clone();
@@ -166,30 +179,24 @@ impl Timeline {
                     event.span = event.playtime - prev_playtime;
 
                     // unranked life?
-                    event.unranked = next_unranked.clone();
-                    next_unranked = false;
-
-                    // set next playtime (not really needed :/ )
-                    // alive playtime == total playtime
-                    // prev_playtime = event.playtime.clone();
+                    event.unranked = ranked_lives <= 0;
                 }
                 EventType::Offense => { /* Nothing to do */ },
                 EventType::ExtraLife => {
-                    // Is this a paid life?
-                    if event.context == "PAID" {
-                        next_unranked = true;
-                        event.unranked = true;
-                    }
-
-                    // if the playtime is zero, we don't have data and just need to keep going.
-                    if event.playtime == 0 {
-                        continue;
-                    };
-
+                    // if the playtime is zero, we don't have data so we can't update playtime
                     // is the player a ghost when they got the extra life?
-                    if lives <= 0 {
+                    if event.playtime != 0  &&  ranked_lives + unranked_lives <= 0 {
                         // set the playtime to their current time.
                         prev_playtime = event.playtime.clone();
+                    }
+
+                    // Is this a paid life?
+                    if event.context == "PAID" {
+                        unranked_lives += 1;
+                        //next_unranked = true;
+                        event.unranked = true;
+                    } else {
+                        ranked_lives += 1;
                     }
                 },
             };
