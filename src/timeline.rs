@@ -82,7 +82,7 @@ impl Timeline {
         let offenses = store.get_player_offenses(&player.player_uuid).await?;
         let extra_lives = store.get_player_extra_lives(&player.player_uuid).await ?;
 
-        let player_state = if deaths.len() - extra_lives.len() >= 3 { PlayerState::Dead } else { PlayerState::Alive };
+        let player_state = if deaths.len() >= extra_lives.len() + 3  { PlayerState::Dead } else { PlayerState::Alive };
 
         let mut events : Vec<TimelineEvent> = Vec::new();
         for death in &deaths {
